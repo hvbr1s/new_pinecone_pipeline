@@ -15,7 +15,7 @@ assert ZD_USER and ZD_PASSWORD, "Make sure your environment variables are popula
 def create_metadata_string(metadata: dict):
     metadata_string = ''
     for key, value in metadata.items():
-        metadata_string += f'<meta name="{key}" content="{value}">'
+        metadata_string += f'<meta name="{key}" content="{value}"/>'
     return metadata_string
 
 
@@ -77,10 +77,10 @@ def scrape_zendesk(output_folder: str, article_ids_to_skip: list = None, zendesk
             response = requests.get(endpoint, auth=(ZD_USER, ZD_PASSWORD))
             assert response.status_code == 200, f'Failed to retrieve articles with error {response.status_code}'
             data = response.json()
-            if not scrape_these_article_ids:
-                # If no specific article IDs are provided, then scrape all of the articles
-                scrape_these_article_ids = data['articles']
-            for article in scrape_these_article_ids:
+            for article in data['articles']:
+                if scrape_these_article_ids and article['id'] not in scrape_these_article_ids:
+                    # If this argument is provided, then we only want to scrape the articles in the provided list
+                    continue
                 if not article['body'] or article['draft'] or article['id'] in article_ids_to_skip:
                     continue
                 title = '<h1>' + article['title'] + '</h1>'
@@ -154,7 +154,10 @@ def run_scraper(output_directory_path: str = None, url_txt_file_path: str = None
             360006284494,   # TROUBLESHOOT LEDGER BLUE FIRMWARE UPDATE
             7410961987869,  # ARTIST'S GUIDE TO MIGRATING TO LEDGER
             360033473414,   # OLED SCREEN VULNERABILITY - FAQ
-            4404388633489   # EXPORT YOUR ACCOUNTS
+            4404388633489,  # EXPORT YOUR ACCOUNTS
+            360015738179,   # DERIVATION PATH VULNERABILITY IN BITCOIN DERIVATIVES
+            360034576433,   # BLUETOOTH PROTOCOL VULNERABILITY
+            12833652732573  # CONNECT YOUR LEDGER TO BASE (BASE) NETWORK VIA METAMASK
             ],
             locales = locales)
         scrape_urls(scraper_output_folder, url_txt_file_path)
