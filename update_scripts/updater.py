@@ -4,7 +4,6 @@ import os
 from dotenv import load_dotenv
 import openai
 from tqdm.auto import tqdm
-import os
 import pinecone
 from openai.error import RateLimitError
 
@@ -16,22 +15,19 @@ def read_json_file(file_path):
         json_data = json.load(f)
     return json_data
 
-def run_updater(json_file_path:str = None, index_name = 'hc'):
+def run_updater(json_file_path:str = None, index_name = 'prod'):
+    failed_chunks = 0  # Initialize counter for failed chunks
     if not json_file_path:
         pinecone_pipeline_root_directory = os.path.dirname(os.path.dirname(__file__))
         output_folder = os.path.join(pinecone_pipeline_root_directory, 'output_files')
         json_file_path = os.path.join(output_folder, 'output.json')
     documents = read_json_file(json_file_path)
 
-    texts = [doc['text'] for doc in documents]
-
-
     # initialize connection to pinecone
     pinecone.init(
         api_key=os.getenv('PINECONE_API_KEY'),
         environment=os.getenv('PINECONE_ENVIRONMENT')
     )
-
 
     # connect to index
     index = pinecone.Index(index_name)
@@ -42,26 +38,31 @@ def run_updater(json_file_path:str = None, index_name = 'hc'):
     batch_size = 100  # how many embeddings we create and insert at once
 
     for i in tqdm(range(0, len(documents), batch_size)):
-        # find end of batch
-        i_end = min(len(documents), i+batch_size)
+        i_end = min(len(documents), i+batch_size)  # find end of batch
         meta_batch = documents[i:i_end]
-        # get texts to encode
         texts = [x['text'] for x in meta_batch]
-        # create embeddings (try-except added to avoid RateLimitError)
+        
         try:
             res = openai.Embedding.create(input=texts, engine=embed_model)
         except RateLimitError:
-            # OpenAI's API has a cooldown time of 1 minute if a rate limit is hit.
             time.sleep(61)
-            # If it fails a second time, raise the error and quit
             res = openai.Embedding.create(input=texts, engine=embed_model)
+
         embeds = [record['embedding'] for record in res['data']]
-        # format the vectors to upsert
+        
         to_upsert = [{'id': meta['id'], 'values': embed, 'metadata': meta} for meta, embed in zip(meta_batch, embeds)]
-        # upsert to Pinecone
-        index.upsert(vectors=to_upsert)
+
+        try:
+            index.upsert(vectors=to_upsert)
+        except Exception as e:
+            print(f"Failed to upsert the following data: {to_upsert}")
+            print(f"Error: {e}")
+            failed_chunks += 1  # Increment the counter for each failed chunk
+            continue
 
     print('Database updated!')
+    if failed_chunks > 0:  # If there are any failed chunks, print the count
+        print(f"Total number of failed chunks: {failed_chunks}")
 
 if __name__ == "__main__":
     run_updater()
